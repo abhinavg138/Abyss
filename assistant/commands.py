@@ -36,6 +36,7 @@ class CommandHandler:
 /forge CAPABILITY
 /forge-install NAME
 /forge-run NAME [ARGS...]
+/forge-upgrade NAME [IMPROVEMENT]
 /skills
 /askproject QUESTION
 /new NAME
@@ -62,10 +63,11 @@ terminal    — execute local commands (120s max)
 browser     — fetch public HTTP/HTTPS URLs
 
 Abyss Forge
-forge       — generate + test a new skill
+forge         — generate + test a new skill
 forge-install — install a staged skill
-forge-run   — execute an installed skill
-skills      — list staged/installed skills
+forge-run     — execute an installed skill
+forge-upgrade — generate, test and replace a skill with a newer version
+skills        — list staged/installed skills
 """
 
         if command == "/forge":
@@ -74,14 +76,7 @@ skills      — list staged/installed skills
                 return "Usage: /forge <capability>\nExample: /forge convert Roman numerals to integers"
             result = self.manager.forge.forge(request)
             if result.status == "staged":
-                return (
-                    f"🛠️ Forge completed\n\n"
-                    f"Skill: {result.name}\n"
-                    f"What it does: {result.description}\n\n"
-                    f"Tests: PASSED\n{result.tests}\n\n"
-                    f"Status: STAGED — not installed\n"
-                    f"Run /forge-install {result.name} to install it."
-                )
+                return f"🛠️ Forge completed\n\nSkill: {result.name}\nWhat it does: {result.description}\n\nTests: PASSED\n{result.tests}\n\nStatus: STAGED — not installed\nRun /forge-install {result.name} to install it."
             return f"❌ Forge failed: {result.error or result.tests}"
 
         if command == "/forge-install":
@@ -97,19 +92,22 @@ skills      — list staged/installed skills
                 return "Usage: /forge-run <skill_name> [args...]"
             return self.manager.forge.run(parts[1], parts[2:])
 
+        if command == "/forge-upgrade":
+            if len(parts) < 2:
+                return "Usage: /forge-upgrade <skill_name> [improvement request]"
+            request = " ".join(parts[2:]) or "Improve reliability, edge-case handling and test coverage without changing the public interface."
+            result = self.manager.forge.upgrade(parts[1], request)
+            if result.status == "upgraded":
+                return f"🧬 Evolution complete\n\nSkill: {result.name}\nVersion upgraded\nTests: PASSED\n{result.tests}\n\nPrevious version backed up in extensions/.backups/"
+            return f"❌ Evolution failed: {result.error or result.tests}"
+
         if command == "/skills":
             staged = self.manager.forge.list_staged()
             installed = self.manager.forge.list_installed()
             lines = ["Abyss Forge Skills", "", "Staged:"]
-            if staged:
-                lines.extend(f"  • {name}" for name in staged)
-            else:
-                lines.append("  None")
+            lines.extend(f"  • {name}" for name in staged) if staged else lines.append("  None")
             lines.extend(["", "Installed:"])
-            if installed:
-                lines.extend(f"  • {name}" for name in installed)
-            else:
-                lines.append("  None")
+            lines.extend(f"  • {name}" for name in installed) if installed else lines.append("  None")
             return "\n".join(lines)
 
         if command == "/provider":
@@ -119,12 +117,7 @@ skills      — list staged/installed skills
             return f"✅ Switched to {provider.title()}" if self.manager.router.set_provider(provider) else "❌ Unknown provider."
 
         if command == "/status":
-            return (
-                f"Provider : {self.manager.router.get_provider()}\n"
-                f"Messages : {len(self.manager.conversation)}\n"
-                f"Memories : {self.manager.memory.get_count()}\n"
-                f"Skills   : {len(self.manager.forge.list_installed())} installed"
-            )
+            return f"Provider : {self.manager.router.get_provider()}\nMessages : {len(self.manager.conversation)}\nMemories : {self.manager.memory.get_count()}\nSkills   : {len(self.manager.forge.list_installed())} installed"
 
         if command == "/clear":
             self.manager.conversation = [self.manager.system_prompt]
