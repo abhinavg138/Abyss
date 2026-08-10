@@ -1,0 +1,31 @@
+/* Abyss minimal pass — intentionally overrides the legacy dashboard UI. */
+
+/* One chrome layer: keep the chat header, remove the redundant app titlebar. */
+.titlebar{height:0!important;min-height:0!important;padding:0!important;border:0!important;overflow:hidden!important}
+.titlebar-left,.titlebar-center,.titlebar-right{display:none!important}
+
+/* Sidebar = navigation, nothing more. */
+.nav-section,.section-label,.chat-group-label,.sidebar-footer{display:none!important}
+.convo-list{padding-top:2px}
+.convo-item{margin:1px 8px!important;padding:8px 10px!important;min-height:34px;border-radius:8px!important}
+.convo-item.active{box-shadow:inset 2px 0 0 #8b5cf6!important}
+
+/* Assistant messages are content, not giant cards. User messages retain a quiet surface. */
+.bubble-body.ai-body{padding:2px 0!important;background:transparent!important;border:0!important;border-radius:0!important}
+.bubble-body.user-body{padding:9px 12px!important;background:#171c25!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:11px!important}
+
+/* Keep the actual conversation visually dominant. */
+.messages{gap:20px!important;padding-top:28px!important}
+
+/* Secondary information is accessible from the three-dot menu instead of permanently occupying space. */
+.right-panel{display:none!important}
+
+/* Quiet status line. */
+.statusbar{height:24px!important}
+
+/* Remove the old dashboard-looking navigation labels from the secondary polish layer. */
+.abyss-secondary-menu{box-shadow:0 18px 50px rgba(0,0,0,.45)!important}
+
+/* Slightly quieter chrome. */
+.chat-topbar{height:48px!important}
+.new-chat-btn{transform:none!important}
