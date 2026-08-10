@@ -1,0 +1,53 @@
+/* Abyss layout safety fixes — keep message blocks from shrinking/overlapping */
+.messages {
+  align-items: stretch !important;
+}
+
+.msg {
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+  min-height: fit-content !important;
+  width: 100%;
+}
+
+.bubble {
+  min-width: 0 !important;
+  flex: 0 1 auto !important;
+}
+
+.bubble-body {
+  min-width: 0 !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.bubble-body > div {
+  min-width: 0;
+}
+
+.bubble-body pre,
+.bubble-body table,
+.bubble-body img {
+  max-width: 100%;
+}
+
+.bubble-body pre {
+  overflow-x: auto;
+}
+
+/* Markdown lists/paragraphs should keep their natural vertical flow. */
+.bubble-body p,
+.bubble-body ul,
+.bubble-body ol,
+.bubble-body blockquote,
+.bubble-body h1,
+.bubble-body h2,
+.bubble-body h3,
+.bubble-body h4 {
+  margin-top: 0;
+  margin-bottom: .7em;
+}
+
+.bubble-body > div > :last-child {
+  margin-bottom: 0;
+}
