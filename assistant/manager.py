@@ -9,6 +9,7 @@ from memory.manager import MemoryManager
 from memory.extractor import MemoryExtractor
 from chat.manager import ChatManager
 from chat.search import should_search_conversations, search_conversations, build_conversation_context
+from forge.manager import ForgeManager
 
 import os
 import base64
@@ -65,6 +66,7 @@ class AssistantManager:
         self.tool_router = ToolRouter(self.router)
         self.memory = MemoryManager()
         self.chat_manager = ChatManager()
+        self.forge = ForgeManager(self.router)
 
         self.system_prompt = {
             "role": "system",
@@ -240,14 +242,10 @@ class AssistantManager:
             msg_copy.pop("attachments", None)
             messages.append(msg_copy)
 
-        # Long-term personal memory is separate from conversation recall.
         memory_context = self.memory.get_context(current_query, limit=6)
         if memory_context:
             messages.insert(0, {"role": "system", "content": memory_context})
 
-        # Search older chats only when the user's wording indicates they are
-        # referring to something discussed previously. This keeps normal turns
-        # cheap and avoids stuffing unrelated chats into every request.
         if should_search_conversations(current_query):
             results = search_conversations(self.chat_manager.folder, current_query, limit=5)
             conversation_context = build_conversation_context(results)
@@ -257,8 +255,6 @@ class AssistantManager:
         return messages
 
     def _extract_and_store_memory(self, user_message: str):
-        # Most messages are transient. Avoid paying for a second LLM call when
-        # the message has no language that suggests a durable personal fact.
         if not MemoryExtractor.should_extract(user_message):
             return
 
