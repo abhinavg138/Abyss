@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import difflib
 import json
 import re
 import shutil
@@ -21,16 +22,13 @@ class ForgeResult:
 
 
 class ForgeManager:
-    """Controlled runtime skill creation and execution.
-
-    Forge never edits Abyss core files. New skills are generated into
-    extensions/.staging, tested, and require an explicit install command.
-    """
+    """Controlled runtime skill creation, testing, installation and execution."""
 
     BLOCKED_IMPORTS = {
         "os", "subprocess", "socket", "shutil", "ctypes", "multiprocessing",
         "sys", "importlib", "requests", "httpx", "urllib", "ftplib",
     }
+    BLOCKED_CALLS = {"eval", "exec", "__import__", "compile", "open"}
     NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 
     def __init__(self, router, root: str | Path = "extensions"):
@@ -44,32 +42,13 @@ class ForgeManager:
         request = request.strip()
         if not request:
             return ForgeResult("unknown", "", "failed", error="No capability request supplied.")
-
         prompt = f"""
 You are Abyss Forge, a conservative Python skill generator.
-
-Create ONE small reusable skill for this capability request:
+Create ONE small reusable skill for this request:
 {request}
-
-Return ONLY valid JSON with exactly these fields:
-name, description, code, tests
-
-IMPORTANT JSON RULE:
-The code and tests fields are JSON strings. Escape every newline as \\n,
-escape every embedded double quote as \\" and escape backslashes as needed.
-Do not put markdown fences around the JSON.
-
-Rules:
-- name must be lowercase snake_case, 3-32 chars.
-- code must define a class named Skill with an execute(self, *args, **kwargs) method.
-- tests must be a standalone unittest script that imports Skill from tool.py.
-- Use Python standard-library functionality only.
-- Do NOT import or use os, subprocess, socket, shutil, ctypes, multiprocessing,
-  sys, importlib, requests, httpx, urllib, ftplib, eval, exec, or __import__.
-- Do not read/write arbitrary files or access the network.
-- Keep the skill focused on the requested capability.
-- Do not modify Abyss core files.
-- Make the tests deterministic and runnable with `python tests.py`.
+Return ONLY valid JSON with exactly: name, description, code, tests.
+The code/tests fields are JSON strings. Escape newlines, quotes and backslashes correctly. No markdown fences.
+Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs); unittest tests importing Skill from tool.py; standard library only; no os, subprocess, socket, shutil, ctypes, multiprocessing, sys, importlib, requests, httpx, urllib, ftplib; no eval, exec, __import__, compile or open; no arbitrary filesystem/network access; deterministic tests.
 """
         try:
             raw = self.router.chat([{"role": "user", "content": prompt}]).strip()
@@ -80,27 +59,33 @@ Rules:
             return ForgeResult("unknown", "", "failed", error=str(exc))
 
     def install(self, name: str) -> ForgeResult:
+        requested = name
+        name = self.resolve_name(name, staged=True) or name
         if not self.NAME_RE.fullmatch(name):
             return ForgeResult(name, "", "failed", error="Invalid skill name.")
         staged = self.staging / name
         if not staged.exists():
-            return ForgeResult(name, "", "failed", error="No staged skill found. Forge it first.")
+            suggestions = self.suggestions(requested, staged=True)
+            hint = f" Did you mean: {', '.join(suggestions[:3])}?" if suggestions else ""
+            return ForgeResult(name, "", "failed", error=f"No staged skill found. Forge it first.{hint}")
         target = self.root / name
         if target.exists():
             return ForgeResult(name, "", "failed", error="Skill already exists; refusing to overwrite it.")
         shutil.copytree(staged, target)
-        manifest = target / "manifest.json"
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-        return ForgeResult(name, payload["description"], "installed", str(target), payload.get("tests", ""))
+        manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+        return ForgeResult(name, manifest["description"], "installed", str(target), manifest.get("tests", ""))
 
     def run(self, name: str, args: list[str] | None = None) -> str:
+        requested = name
+        name = self.resolve_name(name, staged=False) or name
         if not self.NAME_RE.fullmatch(name):
             return "Invalid skill name."
         target = self.root / name
-        tool_file = target / "tool.py"
-        if not tool_file.exists():
-            return "Installed skill not found."
-
+        if not (target / "tool.py").exists():
+            suggestions = self.suggestions(requested)
+            if suggestions:
+                return f"Installed skill '{requested}' not found. Did you mean: {', '.join(suggestions[:3])}?"
+            return f"Installed skill '{requested}' not found. Use /skills to see installed skills."
         runner = (
             "import json, sys\n"
             "from tool import Skill\n"
@@ -108,26 +93,40 @@ Rules:
             "print(value if isinstance(value, str) else json.dumps(value, default=str))\n"
         )
         try:
-            result = subprocess.run(
-                [sys.executable, "-c", runner, json.dumps(args or [])],
-                cwd=target,
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
+            result = subprocess.run([sys.executable, "-c", runner, json.dumps(args or [])], cwd=target, capture_output=True, text=True, timeout=20)
         except subprocess.TimeoutExpired:
-            return "Skill timed out after 20s."
+            return f"Skill '{name}' timed out after 20s."
         output = ((result.stdout or "") + (result.stderr or "")).strip()
-        return output or f"Skill exited with code {result.returncode}."
+        if result.returncode != 0:
+            return f"Skill '{name}' failed (exit {result.returncode}).\n{output}"
+        return output or f"Skill '{name}' returned no output."
 
     def list_staged(self) -> list[str]:
         return sorted(p.name for p in self.staging.iterdir() if p.is_dir())
 
     def list_installed(self) -> list[str]:
-        return sorted(
-            p.name for p in self.root.iterdir()
-            if p.is_dir() and p.name != ".staging" and (p / "tool.py").exists()
-        )
+        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and p.name != ".staging" and (p / "tool.py").exists())
+
+    def suggestions(self, name: str, staged: bool = False) -> list[str]:
+        pool = self.list_staged() if staged else self.list_installed()
+        query = name.lower().replace("-", "_").strip()
+        scored = []
+        for candidate in pool:
+            score = difflib.SequenceMatcher(None, query, candidate).ratio()
+            if query in candidate or candidate in query:
+                score += 0.25
+            scored.append((score, candidate))
+        return [candidate for score, candidate in sorted(scored, reverse=True) if score >= 0.35]
+
+    def resolve_name(self, name: str, staged: bool = False) -> str | None:
+        pool = self.list_staged() if staged else self.list_installed()
+        normalized = name.lower().replace("-", "_").strip()
+        if normalized in pool:
+            return normalized
+        suggestions = self.suggestions(normalized, staged=staged)
+        if suggestions and difflib.SequenceMatcher(None, normalized, suggestions[0]).ratio() >= 0.82:
+            return suggestions[0]
+        return None
 
     def _stage_and_test(self, payload: dict) -> ForgeResult:
         name = payload["name"]
@@ -137,17 +136,9 @@ Rules:
         stage.mkdir(parents=True)
         (stage / "tool.py").write_text(payload["code"], encoding="utf-8")
         (stage / "tests.py").write_text(payload["tests"], encoding="utf-8")
-        (stage / "manifest.json").write_text(json.dumps({
-            "name": name,
-            "description": payload["description"],
-            "tests": "tests.py",
-            "generated_by": "Abyss Forge",
-        }, indent=2), encoding="utf-8")
+        (stage / "manifest.json").write_text(json.dumps({"name": name, "description": payload["description"], "tests": "tests.py", "generated_by": "Abyss Forge", "version": 1}, indent=2), encoding="utf-8")
         try:
-            result = subprocess.run(
-                [sys.executable, "tests.py"], cwd=stage, capture_output=True,
-                text=True, timeout=20,
-            )
+            result = subprocess.run([sys.executable, "tests.py"], cwd=stage, capture_output=True, text=True, timeout=20)
         except subprocess.TimeoutExpired:
             shutil.rmtree(stage, ignore_errors=True)
             return ForgeResult(name, payload["description"], "failed_tests", error="Tests timed out after 20s.")
@@ -175,12 +166,10 @@ Rules:
                 for alias in node.names:
                     if alias.name.split(".")[0] in self.BLOCKED_IMPORTS:
                         raise ValueError(f"Blocked import: {alias.name}")
-            elif isinstance(node, ast.ImportFrom):
-                if (node.module or "").split(".")[0] in self.BLOCKED_IMPORTS:
-                    raise ValueError(f"Blocked import: {node.module}")
-            elif isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec", "__import__"}:
-                    raise ValueError(f"Blocked builtin: {node.func.id}")
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in self.BLOCKED_IMPORTS:
+                raise ValueError(f"Blocked import: {node.module}")
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in self.BLOCKED_CALLS:
+                raise ValueError(f"Blocked builtin: {node.func.id}")
         if not test_file:
             classes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Skill"]
             if not classes:
@@ -190,18 +179,9 @@ Rules:
                 raise ValueError("Skill must define execute().")
 
     def _parse_json(self, raw: str) -> dict:
-        """Parse model JSON, including common LLM formatting mistakes.
-
-        Models sometimes return literal newlines/tabs inside JSON string values
-        even after being asked for escaped JSON. strict=False lets the JSON
-        decoder accept those control characters so Python code can reach the
-        normal AST validation stage instead of failing at the transport layer.
-        """
         candidates = [raw]
         if "```" in raw:
-            fenced = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.IGNORECASE)
-            candidates.insert(0, fenced)
-
+            candidates.insert(0, re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.IGNORECASE))
         for candidate in candidates:
             try:
                 return json.loads(candidate, strict=False)
@@ -212,5 +192,4 @@ Rules:
                         return json.loads(candidate[start:end + 1], strict=False)
                     except json.JSONDecodeError:
                         pass
-
         raise ValueError("Forge model did not return valid JSON.")
