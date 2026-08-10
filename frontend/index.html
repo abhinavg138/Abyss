@@ -23,11 +23,6 @@
       <i class="ti ti-pencil"></i>
     </div>
     <div class="titlebar-right">
-      <div class="model-badge">
-        <span id="sbProvider">Provider: groq</span>
-        <span class="code-tag" id="providerBadge">Groq</span>
-        <i class="ti ti-chevron-down" style="font-size:12px"></i>
-      </div>
       <div class="win-btn"><i class="ti ti-settings"></i></div>
       <div class="win-btn"><i class="ti ti-minus"></i></div>
       <div class="win-btn"><i class="ti ti-square"></i></div>
@@ -37,31 +32,30 @@
 
   <div class="main">
     <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="app-icon">A</div>
+        <span>Abyss</span>
+      </div>
+
       <button class="new-chat-btn" onclick="newChat()">
         <i class="ti ti-plus" style="font-size:15px"></i>
-        New Chat
-        <span class="dot"></span>
+        <span>New Chat</span>
+        <span class="new-chat-shortcut">⌘N</span>
       </button>
-
-      <div class="nav-section">
-        <div class="nav-item"><i class="ti ti-message-circle"></i> Conversations</div>
-        <div class="nav-item"><i class="ti ti-brain"></i> Memory</div>
-        <div class="nav-item"><i class="ti ti-tool"></i> Tools</div>
-        <div class="nav-item"><i class="ti ti-settings"></i> Settings</div>
-        <div class="nav-item"><i class="ti ti-info-circle"></i> About</div>
-      </div>
 
       <div class="convo-search-container">
         <i class="ti ti-search search-icon"></i>
         <input type="text" id="convoSearch" placeholder="Search chats..." autocomplete="off" />
       </div>
 
-      <div class="section-label">Recent Conversations</div>
+      <div class="section-label">CONVERSATIONS</div>
       <div id="chatList" class="convo-list"></div>
 
       <div class="sidebar-footer">
-        <span>Abyss</span> v0.3.0 · Pulse<br>
-        Crafted with ❤ by Abhinav Gupta
+        <button class="sidebar-footer-action" id="sidebarSettings" type="button">
+          <i class="ti ti-settings"></i><span>Settings</span>
+        </button>
+        <div class="sidebar-credit"><b>Abyss</b> · v0.3.0</div>
       </div>
     </aside>
 
@@ -76,16 +70,15 @@
         </div>
         <div class="topbar-model">
           <span id="topbarProvider">Groq</span>
-          <span class="code-tag">Code-Optimized</span>
           <i class="ti ti-chevron-down"></i>
         </div>
       </div>
 
       <div class="messages" id="messages">
         <div class="welcome-screen" id="welcomeScreen">
-          <h1>🌌 Welcome to Abyss</h1>
+          <div class="welcome-mark">A</div>
+          <h1>Welcome to Abyss</h1>
           <p>Your personal AI assistant.</p>
-          <p style="margin-top:15px;color:#4B5563;">Ask me anything to get started.</p>
         </div>
       </div>
 
@@ -105,52 +98,23 @@
       <div class="statusbar">
         <div class="sb-left">
           <div class="sb-dot"></div>
-          <span id="statusProvider">Provider: groq</span>
-          <span>·</span>
-          <span id="statusModel">llama-3.3-70b-versatile</span>
-          <span>·</span>
           <span>Status: Connected</span>
         </div>
         <div class="sb-right">
-          <span>Msgs: <b id="statMessages">0</b></span>
-          <span>·</span>
-          <span>Tokens: <b id="statTokens">0</b></span>
+          <span id="statMessagesCompact">0 messages</span>
         </div>
+        <span id="statMessages" hidden>0</span>
+        <span id="statTokens" hidden>0</span>
+        <span id="statusProvider" hidden></span>
+        <span id="statusModel" hidden></span>
       </div>
     </div>
-
-    <aside class="right-panel">
-      <div class="panel-section">
-        <div class="panel-header">
-          <div class="panel-title"><i class="ti ti-brain"></i> Memory <span class="panel-count" id="memoryCount">0</span></div>
-          <span class="panel-link">View details</span>
-        </div>
-        <div id="memList"></div>
-      </div>
-      <div class="panel-divider"></div>
-      <div class="panel-section">
-        <div class="panel-header"><div class="panel-title"><i class="ti ti-tool"></i> Tools</div></div>
-        <div class="tool-grid">
-          <div class="tool-card"><div class="tool-name"><i class="ti ti-math"></i> Calculator</div><div class="tool-open">Open</div></div>
-          <div class="tool-card"><div class="tool-name"><i class="ti ti-folder"></i> Filesystem</div><div class="tool-open">Open</div></div>
-          <div class="tool-card"><div class="tool-name"><i class="ti ti-terminal"></i> Terminal</div><div class="tool-open">Open</div></div>
-          <div class="tool-card"><div class="tool-name"><i class="ti ti-search"></i> Search</div><div class="tool-open">Open</div></div>
-        </div>
-      </div>
-      <div class="panel-divider"></div>
-      <div class="panel-section">
-        <div class="panel-header"><div class="panel-title"><i class="ti ti-chart-bar"></i> Stats</div></div>
-        <div class="stat-row"><span class="stat-label"><i class="ti ti-message"></i> Messages</span><span class="stat-val" id="statMessagesPanel">0</span></div>
-        <div class="stat-row"><span class="stat-label"><i class="ti ti-coins"></i> Tokens</span><span class="stat-val" id="statTokensPanel">0</span></div>
-        <div class="stat-row"><span class="stat-label"><i class="ti ti-brain"></i> Memory Items</span><span class="stat-val" id="statMemory">0</span></div>
-        <div class="stat-row"><span class="stat-label"><i class="ti ti-server"></i> Provider</span><span class="stat-val green"><span class="green-dot"></span><span id="statProvider">Groq</span></span></div>
-      </div>
-    </aside>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/polish.js"></script>
 </body>
 </html>
