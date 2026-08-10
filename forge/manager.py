@@ -54,6 +54,11 @@ Create ONE small reusable skill for this capability request:
 Return ONLY valid JSON with exactly these fields:
 name, description, code, tests
 
+IMPORTANT JSON RULE:
+The code and tests fields are JSON strings. Escape every newline as \\n,
+escape every embedded double quote as \\" and escape backslashes as needed.
+Do not put markdown fences around the JSON.
+
 Rules:
 - name must be lowercase snake_case, 3-32 chars.
 - code must define a class named Skill with an execute(self, *args, **kwargs) method.
@@ -185,10 +190,27 @@ Rules:
                 raise ValueError("Skill must define execute().")
 
     def _parse_json(self, raw: str) -> dict:
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            start, end = raw.find("{"), raw.rfind("}")
-            if start < 0 or end <= start:
-                raise ValueError("Forge model did not return valid JSON.")
-            return json.loads(raw[start:end + 1])
+        """Parse model JSON, including common LLM formatting mistakes.
+
+        Models sometimes return literal newlines/tabs inside JSON string values
+        even after being asked for escaped JSON. strict=False lets the JSON
+        decoder accept those control characters so Python code can reach the
+        normal AST validation stage instead of failing at the transport layer.
+        """
+        candidates = [raw]
+        if "```" in raw:
+            fenced = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.IGNORECASE)
+            candidates.insert(0, fenced)
+
+        for candidate in candidates:
+            try:
+                return json.loads(candidate, strict=False)
+            except json.JSONDecodeError:
+                start, end = candidate.find("{"), candidate.rfind("}")
+                if start >= 0 and end > start:
+                    try:
+                        return json.loads(candidate[start:end + 1], strict=False)
+                    except json.JSONDecodeError:
+                        pass
+
+        raise ValueError("Forge model did not return valid JSON.")
