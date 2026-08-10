@@ -33,6 +33,9 @@ class CommandHandler:
 /shell COMMAND
 /web URL
 /tools
+/forge CAPABILITY
+/forge-install NAME
+/skills
 /askproject QUESTION
 /new NAME
 /load NAME
@@ -51,12 +54,50 @@ read_file   — read text files
 write_file  — create/update files
 list_files  — list a directory
 find_files  — find files by wildcard
- grep       — search text across files
+grep        — search text across files
 tree        — project tree
 project     — read Python project source
 terminal    — execute local commands (120s max)
 browser     — fetch public HTTP/HTTPS URLs
+
+Abyss Forge
+forge       — generate + test a new skill
+forge-install — install a staged skill
+skills      — list staged/installed skills
 """
+
+        if command == "/forge":
+            request = user_message.replace("/forge", "", 1).strip()
+            if not request:
+                return "Usage: /forge <capability>\nExample: /forge convert CSV files to JSON"
+            result = self.manager.forge.forge(request)
+            if result.status == "staged":
+                return (
+                    f"🛠️ Forge completed\n\n"
+                    f"Skill: {result.name}\n"
+                    f"What it does: {result.description}\n\n"
+                    f"Tests: PASSED\n{result.tests}\n\n"
+                    f"Status: STAGED — not installed\n"
+                    f"Run /forge-install {result.name} to install it."
+                )
+            return f"❌ Forge failed: {result.error or result.tests}"
+
+        if command == "/forge-install":
+            if len(parts) != 2:
+                return "Usage: /forge-install <skill_name>"
+            result = self.manager.forge.install(parts[1])
+            if result.status == "installed":
+                return f"✅ Installed {result.name}\n{result.description}\nPath: {result.path}"
+            return f"❌ Install failed: {result.error}"
+
+        if command == "/skills":
+            staged = self.manager.forge.list_staged()
+            installed = self.manager.forge.list_installed()
+            lines = ["Abyss Forge Skills", "", "Staged:"]
+            lines.extend(f"  • {name}" for name in staged) or lines.append("  None")
+            lines.extend(["", "Installed:"])
+            lines.extend(f"  • {name}" for name in installed) or lines.append("  None")
+            return "\n".join(lines)
 
         if command == "/provider":
             if len(parts) != 2:
@@ -68,7 +109,8 @@ browser     — fetch public HTTP/HTTPS URLs
             return (
                 f"Provider : {self.manager.router.get_provider()}\n"
                 f"Messages : {len(self.manager.conversation)}\n"
-                f"Memories : {self.manager.memory.get_count()}"
+                f"Memories : {self.manager.memory.get_count()}\n"
+                f"Skills   : {len(self.manager.forge.list_installed())} installed"
             )
 
         if command == "/clear":
