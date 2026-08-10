@@ -4,13 +4,14 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Abyss</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"/>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css"/>
-  <link rel="stylesheet" href="/static/styles.css"/>
-  <link rel="stylesheet" href="/static/theme.css"/>
-  <link rel="stylesheet" href="/static/minimal.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/minimal.css">
+  <link rel="stylesheet" href="/static/speedrun.css">
 </head>
 <body>
 <div class="app">
@@ -30,89 +31,53 @@
       <div class="win-btn close"><i class="ti ti-x"></i></div>
     </div>
   </div>
-
   <div class="main">
     <aside class="sidebar">
       <div class="sidebar-brand">
         <div class="app-icon">A</div>
         <span>Abyss</span>
       </div>
-
       <button class="new-chat-btn" onclick="newChat()">
-        <i class="ti ti-plus" style="font-size:15px"></i>
-        <span>New Chat</span>
-        <span class="new-chat-shortcut">⌘N</span>
+        <i class="ti ti-plus" style="font-size:15px"></i><span>New Chat</span><span class="new-chat-shortcut">⌘N</span>
       </button>
-
       <div class="convo-search-container">
         <i class="ti ti-search search-icon"></i>
         <input type="text" id="convoSearch" placeholder="Search chats..." autocomplete="off" />
       </div>
-
       <div class="section-label">CONVERSATIONS</div>
       <div id="chatList" class="convo-list"></div>
-
       <div class="sidebar-footer">
-        <button class="sidebar-footer-action" id="sidebarSettings" type="button">
-          <i class="ti ti-settings"></i><span>Settings</span>
-        </button>
+        <button class="sidebar-footer-action" id="sidebarSettings" type="button"><i class="ti ti-settings"></i><span>Settings</span></button>
         <div class="sidebar-credit"><b>Abyss</b> · v0.3.0</div>
       </div>
     </aside>
-
     <div class="chat-area">
       <div class="chat-topbar">
         <div class="chat-title">
-          <button id="sidebarToggle" class="sidebar-toggle-btn" title="Toggle Sidebar">
-            <i class="ti ti-layout-sidebar"></i>
-          </button>
-          <span id="chatTopbarTitle">New Chat</span>
-          <i class="ti ti-pencil"></i>
+          <button id="sidebarToggle" class="sidebar-toggle-btn" title="Toggle Sidebar"><i class="ti ti-layout-sidebar"></i></button>
+          <span id="chatTopbarTitle">New Chat</span><i class="ti ti-pencil"></i>
         </div>
-        <div class="topbar-model">
-          <span id="topbarProvider">Groq</span>
-          <i class="ti ti-chevron-down"></i>
-        </div>
+        <div class="topbar-model"><span id="topbarProvider">Groq</span><i class="ti ti-chevron-down"></i></div>
       </div>
-
       <div class="messages" id="messages">
-        <div class="welcome-screen" id="welcomeScreen">
-          <div class="welcome-mark">A</div>
-          <h1>Welcome to Abyss</h1>
-          <p>Your personal AI assistant.</p>
-        </div>
+        <div class="welcome-screen" id="welcomeScreen"><div class="welcome-mark">A</div><h1>Welcome to Abyss</h1><p>Your personal AI assistant.</p></div>
       </div>
-
       <div class="input-area">
         <div id="attachmentList" class="attachment-list"></div>
         <div class="input-wrap">
           <textarea class="chat-input" id="chatInput" rows="1" placeholder="Message Abyss..."></textarea>
-          <div class="input-icons">
-            <div class="input-icon" title="Attach file"><i class="ti ti-paperclip"></i></div>
-            <div class="input-icon" title="Image"><i class="ti ti-photo"></i></div>
-            <div class="input-icon" title="Code"><i class="ti ti-code"></i></div>
-          </div>
+          <div class="input-icons"><div class="input-icon" title="Attach file"><i class="ti ti-paperclip"></i></div><div class="input-icon" title="Image"><i class="ti ti-photo"></i></div><div class="input-icon" title="Code"><i class="ti ti-code"></i></div></div>
           <div class="send-btn" id="sendBtn" title="Send (Enter)"><i class="ti ti-arrow-up"></i></div>
         </div>
       </div>
-
       <div class="statusbar">
-        <div class="sb-left">
-          <div class="sb-dot"></div>
-          <span>Status: Connected</span>
-        </div>
-        <div class="sb-right">
-          <span id="statMessagesCompact">0 messages</span>
-        </div>
-        <span id="statMessages" hidden>0</span>
-        <span id="statTokens" hidden>0</span>
-        <span id="statusProvider" hidden></span>
-        <span id="statusModel" hidden></span>
+        <div class="sb-left"><div class="sb-dot"></div><span>Status: Connected</span></div>
+        <div class="sb-right"><span id="statMessagesCompact">0 messages</span></div>
+        <span id="statMessages" hidden>0</span><span id="statTokens" hidden>0</span><span id="statusProvider" hidden></span><span id="statusModel" hidden></span>
       </div>
     </div>
   </div>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
 <script src="/static/app.js"></script>
