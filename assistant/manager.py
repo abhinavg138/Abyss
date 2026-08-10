@@ -33,16 +33,12 @@ def extract_text_from_file(file_path: str) -> str:
         return "\n".join([p.text for p in doc.paragraphs])
 
     else:
-        # txt, md, csv, json, py, cpp, java, js, html, css
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
 
 
 def chunk_text(text: str, chunk_size: int = 50000) -> list[str]:
-    chunks = []
-    for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i + chunk_size])
-    return chunks
+    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
 def is_image_file(filename: str) -> bool:
@@ -59,9 +55,7 @@ def file_to_base64_data_url(file_path: str) -> str:
 
 
 class AssistantManager:
-
     def __init__(self):
-
         self.calculator = CalculatorTool()
         self.filesystem = FilesystemTool()
         self.terminal = TerminalTool()
@@ -75,21 +69,17 @@ class AssistantManager:
             "role": "system",
             "content": (
                 "You are Abyss, a personal AI assistant created by "
-                "Abhinav Gupta. "
-                "Never introduce yourself as ChatGPT or Llama."
+                "Abhinav Gupta. Never introduce yourself as ChatGPT or Llama."
             )
         }
 
         saved = self.chat_manager.load()
-
         if saved:
             self.conversation = saved
         else:
             self.conversation = [self.system_prompt]
-            provider = self.router.get_provider()
-            self.chat_manager.save(self.conversation, provider=provider)
+            self.chat_manager.save(self.conversation, provider=self.router.get_provider())
 
-        # Restore the provider that was active when this chat was last saved.
         meta = self.chat_manager.load_meta()
         saved_provider = meta.get("provider", "")
         if saved_provider:
@@ -97,10 +87,7 @@ class AssistantManager:
 
         self.command_handler = CommandHandler(self)
 
-    # ── public API ────────────────────────────────────────────────
-
     def chat(self, user_message: str, attachments: list = None):
-
         before_command = len(self.conversation)
         tool_command = self.tool_router.route(user_message)
 
@@ -119,24 +106,15 @@ class AssistantManager:
             "attachments": attachments or []
         })
 
-        messages = self._build_messages_with_memory()
-
-        response = self.router.chat(messages)
-
+        response = self.router.chat(self._build_messages_with_memory(user_message))
         self._extract_and_store_memory(user_message)
 
         self.conversation.append({"role": "assistant", "content": response})
-
-        provider = self.router.get_provider()
-        self.chat_manager.save(self.conversation, provider=provider)
-
-        # Generate AI title after the FIRST assistant response only
+        self.chat_manager.save(self.conversation, provider=self.router.get_provider())
         self._maybe_generate_title(user_message)
-
         return response
 
     def stream(self, user_message: str, attachments: list = None):
-
         before_command = len(self.conversation)
         tool_command = self.tool_router.route(user_message)
 
@@ -156,39 +134,23 @@ class AssistantManager:
             "attachments": attachments or []
         })
 
-        messages = self._build_messages_with_memory()
-
         full_response = ""
-
-        for token in self.router.stream(messages):
+        for token in self.router.stream(self._build_messages_with_memory(user_message)):
             full_response += token
             yield token
 
         self._extract_and_store_memory(user_message)
-
         self.conversation.append({"role": "assistant", "content": full_response})
-
-        provider = self.router.get_provider()
-        self.chat_manager.save(self.conversation, provider=provider)
-
-        # Generate AI title after the FIRST assistant response only
+        self.chat_manager.save(self.conversation, provider=self.router.get_provider())
         self._maybe_generate_title(user_message)
 
-    # ── title generation ──────────────────────────────────────────
-
     def _maybe_generate_title(self, user_message: str):
-        """
-        Called after the first assistant response.
-        If this chat has never been titled, ask the AI for a 2-5 word title
-        and rename the file accordingly. Never renames again after that.
-        """
         meta = self.chat_manager.load_meta()
         if meta.get("auto_named") or not self.chat_manager.is_auto_name_candidate():
             return
 
-        # Only title on the first real exchange (system + user + assistant = 3 messages)
         non_system = [m for m in self.conversation if m.get("role") != "system"]
-        if len(non_system) != 2:  # exactly 1 user + 1 assistant
+        if len(non_system) != 2:
             return
 
         try:
@@ -196,82 +158,74 @@ class AssistantManager:
                 {
                     "role": "system",
                     "content": (
-                        "You are a chat title generator. "
-                        "Given the user's first message, reply with ONLY a short title "
-                        "of 2 to 5 words that captures the topic. "
+                        "You are a chat title generator. Given the user's first message, "
+                        "reply with ONLY a short title of 2 to 5 words. "
                         "No punctuation at the end. No quotes. No explanation."
                     )
                 },
-                {
-                    "role": "user",
-                    "content": user_message[:500]  # cap length
-                }
+                {"role": "user", "content": user_message[:500]}
             ]
-
             title = self.router.chat(title_prompt).strip().strip('"\'')
-
-            # Sanity-check: must be 1-8 words and not absurdly long
-            word_count = len(title.split())
-            if 1 <= word_count <= 8 and len(title) <= 60:
-                provider = self.router.get_provider()
-                self.chat_manager.set_title(title, provider=provider, auto_named=True)
-
+            if 1 <= len(title.split()) <= 8 and len(title) <= 60:
+                self.chat_manager.set_title(
+                    title,
+                    provider=self.router.get_provider(),
+                    auto_named=True,
+                )
         except Exception:
-            # Title generation is best-effort; never crash the chat
             pass
 
-    # ── private helpers ───────────────────────────────────────────
-
-    def _build_messages_with_memory(self) -> list:
+    def _build_messages_with_memory(self, current_query: str = "") -> list:
         messages = []
         for msg in self.conversation:
             msg_copy = msg.copy()
             attachments = msg.get("attachments", [])
-            
             text_attachments = []
             image_attachments = []
+
             for attachment in attachments:
                 filename = attachment.get("filename", "")
                 if is_image_file(filename):
                     image_attachments.append(attachment)
                 else:
                     text_attachments.append(attachment)
-            
-            # Process text attachments
+
             text_context = ""
-            if text_attachments:
-                for attachment in text_attachments:
-                    temp_path = attachment.get("temp_path")
-                    filename = attachment.get("filename")
-                    if temp_path and os.path.exists(temp_path):
-                        try:
-                            content = extract_text_from_file(temp_path)
-                            chunks = chunk_text(content)
-                            for idx, chunk in enumerate(chunks):
-                                if len(chunks) > 1:
-                                    text_context += f"\n\n--- Start of File: {filename} (Part {idx+1}/{len(chunks)}) ---\n{chunk}\n--- End of Part {idx+1} ---"
-                                else:
-                                    text_context += f"\n\n--- Start of File: {filename} ---\n{chunk}\n--- End of File ---"
-                        except Exception as e:
-                            text_context += f"\n\n[Error reading file {filename}: {str(e)}]"
+            for attachment in text_attachments:
+                temp_path = attachment.get("temp_path")
+                filename = attachment.get("filename")
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        content = extract_text_from_file(temp_path)
+                        chunks = chunk_text(content)
+                        for idx, chunk in enumerate(chunks):
+                            if len(chunks) > 1:
+                                text_context += (
+                                    f"\n\n--- Start of File: {filename} "
+                                    f"(Part {idx+1}/{len(chunks)}) ---\n{chunk}\n"
+                                    f"--- End of Part {idx+1} ---"
+                                )
+                            else:
+                                text_context += (
+                                    f"\n\n--- Start of File: {filename} ---\n{chunk}\n"
+                                    "--- End of File ---"
+                                )
+                    except Exception as e:
+                        text_context += f"\n\n[Error reading file {filename}: {str(e)}]"
 
             base_content = msg_copy.get("content") or ""
             if text_context:
-                base_content = base_content + "\n" + text_context
+                base_content += "\n" + text_context
 
-            # Process image attachments
             if image_attachments:
                 content_list = [{"type": "text", "text": base_content}]
                 for attachment in image_attachments:
                     temp_path = attachment.get("temp_path")
                     if temp_path and os.path.exists(temp_path):
                         try:
-                            data_url = file_to_base64_data_url(temp_path)
                             content_list.append({
                                 "type": "image_url",
-                                "image_url": {
-                                    "url": data_url
-                                }
+                                "image_url": {"url": file_to_base64_data_url(temp_path)}
                             })
                         except Exception as e:
                             content_list.append({
@@ -282,46 +236,48 @@ class AssistantManager:
             else:
                 msg_copy["content"] = base_content
 
-            if "attachments" in msg_copy:
-                del msg_copy["attachments"]
+            msg_copy.pop("attachments", None)
             messages.append(msg_copy)
 
-        memory_context = self.memory.get_context()
-
+        memory_context = self.memory.get_context(current_query, limit=6)
         if memory_context:
             messages.insert(0, {"role": "system", "content": memory_context})
 
         return messages
 
     def _extract_and_store_memory(self, user_message: str):
-        result = MemoryExtractor.extract(self.router, user_message)
+        # Most messages are transient. Avoid paying for a second LLM call when
+        # the message has no language that suggests a durable personal fact.
+        if not MemoryExtractor.should_extract(user_message):
+            return
 
-        if result.get("remember"):
-            self.memory.remember(result["memory"])
+        result = MemoryExtractor.extract(self.router, user_message)
+        if not result.get("remember") or not result.get("memory"):
+            return
+
+        self.memory.remember(
+            result["memory"],
+            category=result.get("category", "Other"),
+            memory_key=result.get("key"),
+            value=result.get("value"),
+            confidence=result.get("confidence", 1.0),
+        )
 
     def _save_command_response(self, user_message: str, response: str, before_command: int):
-
         command = user_message.split(maxsplit=1)[0].lower() if user_message.startswith("/") else ""
-
-        # Lifecycle commands handle their own persistence (or need none).
         if command in {"/clear", "/new", "/load", "/delete"}:
             return
 
-        # If the command already appended messages to the conversation
-        # (e.g. /ask, /edit), don't duplicate them.
         if not self._last_assistant_response_is(response) and len(self.conversation) == before_command:
-            self.conversation.append({"role": "user",      "content": user_message})
+            self.conversation.append({"role": "user", "content": user_message})
             self.conversation.append({"role": "assistant", "content": response})
 
-        provider = self.router.get_provider()
-        self.chat_manager.save(self.conversation, provider=provider)
+        self.chat_manager.save(self.conversation, provider=self.router.get_provider())
 
     def _last_assistant_response_is(self, response: str) -> bool:
         if not self.conversation:
             return False
-
         last_message = self.conversation[-1]
-
         return (
             last_message.get("role") == "assistant"
             and last_message.get("content") == response
