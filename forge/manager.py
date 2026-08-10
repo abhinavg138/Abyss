@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,18 +21,16 @@ class ForgeResult:
 
 
 class ForgeManager:
-    """Create and validate extension skills without modifying Abyss core code.
+    """Controlled runtime skill creation and execution.
 
-    Forge is deliberately human-in-the-loop: generating and testing a skill is
-    automatic, installing it is a separate explicit operation. This keeps an
-    LLM from silently rewriting the assistant itself.
+    Forge never edits Abyss core files. New skills are generated into
+    extensions/.staging, tested, and require an explicit install command.
     """
 
     BLOCKED_IMPORTS = {
         "os", "subprocess", "socket", "shutil", "ctypes", "multiprocessing",
         "sys", "importlib", "requests", "httpx", "urllib", "ftplib",
     }
-
     NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 
     def __init__(self, router, root: str | Path = "extensions"):
@@ -69,7 +66,6 @@ Rules:
 - Do not modify Abyss core files.
 - Make the tests deterministic and runnable with `python tests.py`.
 """
-
         try:
             raw = self.router.chat([{"role": "user", "content": prompt}]).strip()
             payload = self._parse_json(raw)
@@ -81,19 +77,43 @@ Rules:
     def install(self, name: str) -> ForgeResult:
         if not self.NAME_RE.fullmatch(name):
             return ForgeResult(name, "", "failed", error="Invalid skill name.")
-
         staged = self.staging / name
         if not staged.exists():
             return ForgeResult(name, "", "failed", error="No staged skill found. Forge it first.")
-
         target = self.root / name
         if target.exists():
             return ForgeResult(name, "", "failed", error="Skill already exists; refusing to overwrite it.")
-
         shutil.copytree(staged, target)
         manifest = target / "manifest.json"
         payload = json.loads(manifest.read_text(encoding="utf-8"))
         return ForgeResult(name, payload["description"], "installed", str(target), payload.get("tests", ""))
+
+    def run(self, name: str, args: list[str] | None = None) -> str:
+        if not self.NAME_RE.fullmatch(name):
+            return "Invalid skill name."
+        target = self.root / name
+        tool_file = target / "tool.py"
+        if not tool_file.exists():
+            return "Installed skill not found."
+
+        runner = (
+            "import json, sys\n"
+            "from tool import Skill\n"
+            "value = Skill().execute(*json.loads(sys.argv[1]))\n"
+            "print(value if isinstance(value, str) else json.dumps(value, default=str))\n"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", runner, json.dumps(args or [])],
+                cwd=target,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            return "Skill timed out after 20s."
+        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        return output or f"Skill exited with code {result.returncode}."
 
     def list_staged(self) -> list[str]:
         return sorted(p.name for p in self.staging.iterdir() if p.is_dir())
@@ -110,43 +130,36 @@ Rules:
         if stage.exists():
             shutil.rmtree(stage)
         stage.mkdir(parents=True)
-
         (stage / "tool.py").write_text(payload["code"], encoding="utf-8")
         (stage / "tests.py").write_text(payload["tests"], encoding="utf-8")
-        (stage / "manifest.json").write_text(
-            json.dumps({
-                "name": name,
-                "description": payload["description"],
-                "tests": "tests.py",
-                "generated_by": "Abyss Forge",
-            }, indent=2),
-            encoding="utf-8",
-        )
-
-        result = subprocess.run(
-            [sys.executable, "tests.py"],
-            cwd=stage,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
+        (stage / "manifest.json").write_text(json.dumps({
+            "name": name,
+            "description": payload["description"],
+            "tests": "tests.py",
+            "generated_by": "Abyss Forge",
+        }, indent=2), encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [sys.executable, "tests.py"], cwd=stage, capture_output=True,
+                text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            shutil.rmtree(stage, ignore_errors=True)
+            return ForgeResult(name, payload["description"], "failed_tests", error="Tests timed out after 20s.")
         output = ((result.stdout or "") + (result.stderr or "")).strip()
         if result.returncode != 0:
             shutil.rmtree(stage, ignore_errors=True)
             return ForgeResult(name, payload["description"], "failed_tests", tests=output, error=output)
-
         return ForgeResult(name, payload["description"], "staged", str(stage), output)
 
     def _validate_payload(self, payload: dict):
-        required = {"name", "description", "code", "tests"}
-        if set(payload) != required:
+        if set(payload) != {"name", "description", "code", "tests"}:
             raise ValueError("Forge response must contain name, description, code, and tests.")
         if not isinstance(payload["name"], str) or not self.NAME_RE.fullmatch(payload["name"]):
             raise ValueError("Invalid skill name.")
         for field in ("description", "code", "tests"):
             if not isinstance(payload[field], str) or not payload[field].strip():
                 raise ValueError(f"Missing {field}.")
-
         self._validate_code(payload["code"])
         self._validate_code(payload["tests"], test_file=True)
 
@@ -163,7 +176,6 @@ Rules:
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec", "__import__"}:
                     raise ValueError(f"Blocked builtin: {node.func.id}")
-
         if not test_file:
             classes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Skill"]
             if not classes:
@@ -176,8 +188,7 @@ Rules:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            start = raw.find("{")
-            end = raw.rfind("}")
+            start, end = raw.find("{"), raw.rfind("}")
             if start < 0 or end <= start:
                 raise ValueError("Forge model did not return valid JSON.")
             return json.loads(raw[start:end + 1])
