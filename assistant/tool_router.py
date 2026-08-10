@@ -2,7 +2,7 @@ import re
 
 
 class ToolRouter:
-    """Turn natural-language tool requests into deterministic commands."""
+    """Turn natural-language requests into deterministic commands."""
 
     def __init__(self, router):
         self.router = router
@@ -10,11 +10,19 @@ class ToolRouter:
     def route(self, user_message):
         msg = user_message.lower().strip()
 
-        # Explicit commands always pass through unchanged.
         if msg.startswith("/"):
             return user_message.strip()
 
-        # Calculator
+        # Explicit request for a new capability. Forge is intentionally staged:
+        # it generates and tests a skill, but never silently installs it.
+        forge_markers = (
+            "create a tool", "make a tool", "build a tool", "forge a tool",
+            "create a skill", "make a skill", "build a skill", "teach yourself",
+            "add a capability", "learn how to", "you don't have a tool",
+        )
+        if any(marker in msg for marker in forge_markers):
+            return "/forge " + user_message
+
         if re.fullmatch(r"[0-9+\-*/().%\s]+", msg):
             return "/calc " + msg
         if msg.startswith("what is"):
@@ -22,41 +30,31 @@ class ToolRouter:
             if re.fullmatch(r"[0-9+\-*/().%\s]+", expr):
                 return "/calc " + expr
 
-        # Filesystem / project tools
         if msg.startswith(("read ", "open ")):
             filename = user_message.split(maxsplit=1)[1]
             return "/read " + filename
         if msg.startswith(("run ", "execute ")):
-            filename = user_message.split(maxsplit=1)[1]
-            return "/run " + filename
+            return "/run " + user_message.split(maxsplit=1)[1]
         if msg.startswith("edit "):
             return "/edit " + user_message[5:].strip()
         if msg.startswith(("write ", "create file ")):
-            payload = user_message.split(maxsplit=1)[1]
-            return "/write " + payload
+            return "/write " + user_message.split(maxsplit=1)[1]
         if msg.startswith(("find files ", "find file ", "search files ")):
-            payload = user_message.split(maxsplit=2)[-1]
-            return "/find " + payload
+            return "/find " + user_message.split(maxsplit=2)[-1]
         if msg.startswith(("grep ", "search for ")):
-            payload = user_message.split(maxsplit=1)[1]
-            return "/grep " + payload
+            return "/grep " + user_message.split(maxsplit=1)[1]
         if "project structure" in msg or "folder structure" in msg:
             return "/tree"
         if "list files" in msg or "show project" in msg:
             return "/project"
 
-        # Terminal
         if msg.startswith(("run command ", "execute command ", "shell ", "terminal ")):
-            payload = user_message.split(maxsplit=2)[-1]
-            return "/shell " + payload
+            return "/shell " + user_message.split(maxsplit=2)[-1]
 
-        # Web fetch. This is deliberately URL-oriented rather than pretending
-        # to be a full search engine.
         url_match = re.search(r"https?://\S+", user_message)
         if url_match and any(word in msg for word in ("open", "read", "fetch", "visit", "look at")):
             return "/web " + url_match.group(0).rstrip(".,)")
 
-        # Let the model classify less obvious tool requests.
         prompt = f"""
 You are Abyss's tool intent classifier.
 
@@ -76,9 +74,11 @@ Available commands:
 /ask FILE QUESTION
 /edit FILE INSTRUCTION
 /tools
+/forge CAPABILITY
 
-Use a tool only when the user clearly wants Abyss to perform that action.
-Do not use tools for normal explanations, coding requests, brainstorming, or questions that can be answered from model knowledge.
+Use /forge only when the user clearly asks Abyss to create/learn a new reusable capability.
+Use tools only when the user clearly wants Abyss to perform an action.
+Do not use tools for normal explanations, coding requests, brainstorming, or questions answerable from model knowledge.
 Never invent a filename, URL, command, or path.
 
 Examples:
@@ -90,15 +90,20 @@ Examples:
 "search files for DEFAULT_PROVIDER" -> /grep DEFAULT_PROVIDER
 "open https://example.com" -> /web https://example.com
 "run command git status" -> /shell git status
+"create a tool that converts Roman numerals" -> /forge create a tool that converts Roman numerals
 
 User:
 {user_message}
 """
 
         try:
-            response = self.router.chat([{"role": "user", "content": prompt}])
-            response = response.strip()
-            if response.startswith(("/calc ", "/read ", "/run ", "/project", "/tree", "/find ", "/grep ", "/write ", "/shell ", "/web ", "/ask ", "/edit ", "/tools")):
+            response = self.router.chat([{"role": "user", "content": prompt}]).strip()
+            allowed = (
+                "/calc ", "/read ", "/run ", "/project", "/tree", "/find ",
+                "/grep ", "/write ", "/shell ", "/web ", "/ask ", "/edit ",
+                "/tools", "/forge ",
+            )
+            if response.startswith(allowed):
                 return response
         except Exception:
             pass
