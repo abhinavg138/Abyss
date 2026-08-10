@@ -22,7 +22,7 @@ class ForgeResult:
 
 
 class ForgeManager:
-    """Controlled runtime skill creation, testing, installation and evolution."""
+    """Controlled runtime skill creation, testing and self-repair."""
 
     BLOCKED_IMPORTS = {
         "os", "subprocess", "socket", "shutil", "ctypes", "multiprocessing",
@@ -59,7 +59,7 @@ Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs);
             return ForgeResult("unknown", "", "failed", error=str(exc))
 
     def upgrade(self, name: str, request: str = "Improve reliability, edge-case handling and test coverage without changing the public interface.") -> ForgeResult:
-        """Generate and test a new version of an installed skill, then atomically replace it."""
+        """Generate, test and atomically install a new version of an installed skill."""
         name = self.resolve_name(name, staged=False) or name
         if not self.NAME_RE.fullmatch(name):
             return ForgeResult(name, "", "failed", error="Invalid skill name.")
@@ -87,7 +87,7 @@ Current tests:
 {old_tests}
 
 Return ONLY valid JSON with exactly: name, description, code, tests.
-Keep name exactly {name}. Preserve the execute() interface and existing behavior.
+Keep name exactly {name}. Preserve execute() and existing behavior.
 Add regression tests for the requested improvement. Standard library only.
 No os, subprocess, socket, shutil, ctypes, multiprocessing, sys, importlib,
 requests, httpx, urllib, ftplib, eval, exec, __import__, compile or open.
@@ -100,14 +100,57 @@ No markdown fences.
             result = self._stage_and_test(payload, version=version)
             if result.status != "staged":
                 return result
-            staged = self.staging / name
-            backup = self.backups / f"{name}_v{old_manifest.get('version', 1)}"
-            if backup.exists():
-                shutil.rmtree(backup)
-            shutil.copytree(target, backup)
-            shutil.rmtree(target)
-            shutil.copytree(staged, target)
-            return ForgeResult(name, payload["description"], "upgraded", str(target), result.tests)
+            return self._promote_staged(name, payload["description"], result.tests, old_manifest.get("version", 1), "upgraded")
+        except Exception as exc:
+            return ForgeResult(name, "", "failed", error=str(exc))
+
+    def repair(self, name: str, failure: str, args: list[str] | None = None) -> ForgeResult:
+        """Diagnose a failed skill run, generate a repair, regression-test it and promote it."""
+        name = self.resolve_name(name, staged=False) or name
+        if not self.NAME_RE.fullmatch(name):
+            return ForgeResult(name, "", "failed", error="Invalid skill name.")
+        target = self.root / name
+        tool = target / "tool.py"
+        tests = target / "tests.py"
+        manifest_path = target / "manifest.json"
+        if not tool.exists() or not tests.exists():
+            return ForgeResult(name, "", "failed", error=f"Installed skill '{name}' not found.")
+
+        old_code = tool.read_text(encoding="utf-8")
+        old_tests = tests.read_text(encoding="utf-8")
+        old_manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {"version": 1, "description": name}
+        old_version = int(old_manifest.get("version", 1))
+        prompt = f"""
+You are Abyss Forge Repair.
+An installed skill failed during execution. Diagnose the failure and produce a minimal repair.
+
+Skill: {name}
+Arguments: {json.dumps(args or [])}
+Observed failure:
+{failure[:6000]}
+
+Current code:
+{old_code}
+
+Current tests:
+{old_tests}
+
+Return ONLY valid JSON with exactly: name, description, code, tests.
+Keep name exactly {name}. Preserve the execute() interface and all working behavior.
+Add a regression test reproducing the failure and tests for the repair.
+Do not merely weaken validation to make the test pass.
+Standard library only. No os, subprocess, socket, shutil, ctypes, multiprocessing,
+sys, importlib, requests, httpx, urllib, ftplib, eval, exec, __import__, compile or open.
+No markdown fences.
+"""
+        try:
+            payload = self._validated_generation(prompt)
+            if payload["name"] != name:
+                raise ValueError("Repair must preserve the skill name.")
+            result = self._stage_and_test(payload, version=old_version + 1)
+            if result.status != "staged":
+                return result
+            return self._promote_staged(name, payload["description"], result.tests, old_version, "repaired")
         except Exception as exc:
             return ForgeResult(name, "", "failed", error=str(exc))
 
@@ -128,7 +171,7 @@ No markdown fences.
         manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
         return ForgeResult(name, manifest["description"], "installed", str(target), manifest.get("tests", ""))
 
-    def run(self, name: str, args: list[str] | None = None) -> str:
+    def run(self, name: str, args: list[str] | None = None, auto_repair: bool = True) -> str:
         requested = name
         name = self.resolve_name(name, staged=False) or name
         if not self.NAME_RE.fullmatch(name):
@@ -139,15 +182,55 @@ No markdown fences.
             if suggestions:
                 return f"Installed skill '{requested}' not found. Did you mean: {', '.join(suggestions[:3])}?"
             return f"Installed skill '{requested}' not found. Use /skills to see installed skills."
+
+        result = self._execute(name, args)
+        if result[0]:
+            return result[1]
+
+        failure = result[1]
+        if not auto_repair:
+            return f"Skill '{name}' failed.\n{failure}"
+
+        repair_result = self.repair(name, failure, args)
+        if repair_result.status != "repaired":
+            return (
+                f"Skill '{name}' failed.\n{failure}\n\n"
+                f"🛠️ Automatic repair failed: {repair_result.error or repair_result.tests}"
+            )
+
+        retry = self._execute(name, args)
+        if retry[0]:
+            return (
+                f"🛠️ Skill '{name}' failed, Forge repaired it, regression tests passed, "
+                f"and the retry succeeded.\n\n{retry[1]}"
+            )
+        return (
+            f"Skill '{name}' failed. Forge produced a repair and tests passed, "
+            f"but the retry still failed.\n\n{retry[1]}"
+        )
+
+    def _execute(self, name: str, args: list[str] | None = None) -> tuple[bool, str]:
+        target = self.root / name
         runner = "import json, sys\nfrom tool import Skill\nvalue = Skill().execute(*json.loads(sys.argv[1]))\nprint(value if isinstance(value, str) else json.dumps(value, default=str))\n"
         try:
             result = subprocess.run([sys.executable, "-c", runner, json.dumps(args or [])], cwd=target, capture_output=True, text=True, timeout=20)
         except subprocess.TimeoutExpired:
-            return f"Skill '{name}' timed out after 20s."
+            return False, "Execution timed out after 20s."
         output = ((result.stdout or "") + (result.stderr or "")).strip()
         if result.returncode != 0:
-            return f"Skill '{name}' failed (exit {result.returncode}).\n{output}"
-        return output or f"Skill '{name}' returned no output."
+            return False, f"Exit code {result.returncode}\n{output}"
+        return True, output or f"Skill '{name}' returned no output."
+
+    def _promote_staged(self, name: str, description: str, tests: str, old_version: int, status: str) -> ForgeResult:
+        staged = self.staging / name
+        target = self.root / name
+        backup = self.backups / f"{name}_v{old_version}"
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.copytree(target, backup)
+        shutil.rmtree(target)
+        shutil.copytree(staged, target)
+        return ForgeResult(name, description, status, str(target), tests)
 
     def list_staged(self) -> list[str]:
         return sorted(p.name for p in self.staging.iterdir() if p.is_dir())
