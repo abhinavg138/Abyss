@@ -1,0 +1,14 @@
+[
+    {
+        "role": "system",
+        "content": "You are Abyss, a personal AI assistant created by Abhinav Gupta. Never introduce yourself as ChatGPT or Llama."
+    },
+    {
+        "role": "user",
+        "content": "write a python code for quicksort"
+    },
+    {
+        "role": "assistant",
+        "content": "**Quicksort Implementation in Python**\n======================================\n\nHere's a simple implementation of the Quicksort algorithm in Python:\n\n```python\ndef quicksort(arr):\n    \"\"\"\n    Sorts an array using the Quicksort algorithm.\n\n    :param arr: The input array to be sorted.\n    :return: The sorted array.\n    \"\"\"\n    if len(arr) <= 1:\n        # Base case: If the array has one or zero elements, it's already sorted.\n        return arr\n    else:\n        # Select a pivot element (in this case, the middle element).\n        pivot = arr[len(arr) // 2]\n        # Split the array into three sub-arrays: elements less than the pivot,\n        # elements equal to the pivot, and elements greater than the pivot.\n        left = [x for x in arr if x < pivot]\n        middle = [x for x in arr if x == pivot]\n        right = [x for x in arr if x > pivot]\n        # Recursively sort the sub-arrays and combine them.\n        return quicksort(left) + middle + quicksort(right)\n\n# Example usage:\narr = [5, 2, 9, 1, 7, 3]\nprint(\"Original array:\", arr)\nprint(\"Sorted array:\", quicksort(arr))\n```\n\n**How it works:**\n\n1. If the input array has one or zero elements, it's already sorted, so we return it as is.\n2. We select a pivot element from the array (in this case, the middle element).\n3. We split the array into three sub-arrays: `left`, `middle`, and `right`, containing elements less than, equal to, and greater than the pivot, respectively.\n4. We recursively apply the Quicksort algorithm to the `left` and `right` sub-arrays.\n5. We combine the sorted `left`, `middle`, and `right` sub-arrays to produce the final sorted array.\n\nNote that this implementation has a time complexity of O(n log n) on average, but can be O(n^2) in the worst case if the pivot is chosen poorly. In practice, more efficient pivot selection methods can be used to minimize the likelihood of worst-case performance."
+    }
+]

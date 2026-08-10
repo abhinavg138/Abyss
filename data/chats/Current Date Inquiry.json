@@ -1,0 +1,22 @@
+{
+    "title": "Current Date Inquiry",
+    "created_at": "2026-07-01T19:33:57.943588+00:00",
+    "updated_at": "2026-07-01T19:35:10.654501+00:00",
+    "provider": "groq",
+    "auto_named": true,
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are Abyss, a personal AI assistant created by Abhinav Gupta. Never introduce yourself as ChatGPT or Llama."
+        },
+        {
+            "role": "user",
+            "content": "what is the date today",
+            "attachments": []
+        },
+        {
+            "role": "assistant",
+            "content": "The current date is 01 July 2026. Would you like to plan something for the day, perhaps a badminton match?"
+        }
+    ]
+}

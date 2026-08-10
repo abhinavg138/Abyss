@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local databases / generated data
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Generated files
+uploads/
+outputs/
+tmp/
