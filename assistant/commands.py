@@ -35,6 +35,7 @@ class CommandHandler:
 /tools
 /forge CAPABILITY
 /forge-install NAME
+/forge-run NAME [ARGS...]
 /skills
 /askproject QUESTION
 /new NAME
@@ -63,13 +64,14 @@ browser     — fetch public HTTP/HTTPS URLs
 Abyss Forge
 forge       — generate + test a new skill
 forge-install — install a staged skill
+forge-run   — execute an installed skill
 skills      — list staged/installed skills
 """
 
         if command == "/forge":
             request = user_message.replace("/forge", "", 1).strip()
             if not request:
-                return "Usage: /forge <capability>\nExample: /forge convert CSV files to JSON"
+                return "Usage: /forge <capability>\nExample: /forge convert Roman numerals to integers"
             result = self.manager.forge.forge(request)
             if result.status == "staged":
                 return (
@@ -90,13 +92,24 @@ skills      — list staged/installed skills
                 return f"✅ Installed {result.name}\n{result.description}\nPath: {result.path}"
             return f"❌ Install failed: {result.error}"
 
+        if command == "/forge-run":
+            if len(parts) < 2:
+                return "Usage: /forge-run <skill_name> [args...]"
+            return self.manager.forge.run(parts[1], parts[2:])
+
         if command == "/skills":
             staged = self.manager.forge.list_staged()
             installed = self.manager.forge.list_installed()
             lines = ["Abyss Forge Skills", "", "Staged:"]
-            lines.extend(f"  • {name}" for name in staged) or lines.append("  None")
+            if staged:
+                lines.extend(f"  • {name}" for name in staged)
+            else:
+                lines.append("  None")
             lines.extend(["", "Installed:"])
-            lines.extend(f"  • {name}" for name in installed) or lines.append("  None")
+            if installed:
+                lines.extend(f"  • {name}" for name in installed)
+            else:
+                lines.append("  None")
             return "\n".join(lines)
 
         if command == "/provider":
