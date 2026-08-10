@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/minimal.css">
   <link rel="stylesheet" href="/static/speedrun.css">
+  <link rel="stylesheet" href="/static/memory.css">
 </head>
 <body>
 <div class="app">
@@ -57,7 +58,16 @@
           <button id="sidebarToggle" class="sidebar-toggle-btn" title="Toggle Sidebar"><i class="ti ti-layout-sidebar"></i></button>
           <span id="chatTopbarTitle">New Chat</span><i class="ti ti-pencil"></i>
         </div>
-        <div class="topbar-model"><span id="topbarProvider">Groq</span><i class="ti ti-chevron-down"></i></div>
+        <div class="topbar-actions">
+          <div class="topbar-model"><span id="topbarProvider">Groq</span><i class="ti ti-chevron-down"></i></div>
+          <div class="quick-menu-wrap">
+            <button id="moreMenuBtn" class="topbar-more" title="More"><i class="ti ti-dots"></i></button>
+            <div id="quickMenu" class="quick-menu">
+              <button id="openMemoryBtn"><i class="ti ti-brain"></i><span>Memory</span></button>
+              <button><i class="ti ti-tool"></i><span>Tools</span></button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="messages" id="messages">
         <div class="welcome-screen" id="welcomeScreen"><div class="welcome-mark">A</div><h1>Welcome to Abyss</h1><p>Your personal AI assistant.</p></div>
@@ -78,9 +88,37 @@
     </div>
   </div>
 </div>
+
+<div id="memoryModal" class="memory-modal-backdrop" aria-hidden="true">
+  <section class="memory-modal" role="dialog" aria-modal="true" aria-labelledby="memoryTitle">
+    <header class="memory-head">
+      <div class="memory-card-icon"><i class="ti ti-brain"></i></div>
+      <div><h2 id="memoryTitle">Memory</h2><p id="memoryModalCount">0 memories</p></div>
+      <button id="memoryClose" class="memory-close" title="Close"><i class="ti ti-x"></i></button>
+    </header>
+    <div class="memory-toolbar">
+      <input id="memorySearch" class="memory-search" placeholder="Search memories..." autocomplete="off" />
+      <select id="memoryFilter" class="memory-filter">
+        <option value="">All</option><option>Personal</option><option>Preferences</option><option>Projects</option><option>Goals</option><option>Skills</option><option>Other</option>
+      </select>
+      <button id="memoryAdd" class="memory-add"><i class="ti ti-plus"></i> Add</button>
+    </div>
+    <div id="memoryForm" class="memory-form">
+      <input id="memoryEditId" type="hidden" />
+      <textarea id="memoryContent" class="full" placeholder="What should Abyss remember?"></textarea>
+      <select id="memoryCategory"><option>Personal</option><option>Preferences</option><option>Projects</option><option>Goals</option><option>Skills</option><option>Other</option></select>
+      <input id="memoryKey" placeholder="Key (optional, e.g. preferred_ide)" />
+      <input id="memoryValue" class="full" placeholder="Value (optional)" />
+      <div class="memory-form-actions"><button id="memoryCancel" class="memory-cancel">Cancel</button><button id="memorySave" class="memory-save">Save Memory</button></div>
+    </div>
+    <div id="memoryModalList" class="memory-list"></div>
+  </section>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/memory.js"></script>
 <script src="/static/polish.js"></script>
 </body>
 </html>
