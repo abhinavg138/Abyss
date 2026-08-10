@@ -22,7 +22,7 @@ class ForgeResult:
 
 
 class ForgeManager:
-    """Controlled runtime skill creation, testing, installation and execution."""
+    """Controlled runtime skill creation, testing, installation and evolution."""
 
     BLOCKED_IMPORTS = {
         "os", "subprocess", "socket", "shutil", "ctypes", "multiprocessing",
@@ -36,7 +36,9 @@ class ForgeManager:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.staging = self.root / ".staging"
+        self.backups = self.root / ".backups"
         self.staging.mkdir(parents=True, exist_ok=True)
+        self.backups.mkdir(parents=True, exist_ok=True)
 
     def forge(self, request: str) -> ForgeResult:
         request = request.strip()
@@ -51,12 +53,63 @@ The code/tests fields are JSON strings. Escape newlines, quotes and backslashes 
 Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs); unittest tests importing Skill from tool.py; standard library only; no os, subprocess, socket, shutil, ctypes, multiprocessing, sys, importlib, requests, httpx, urllib, ftplib; no eval, exec, __import__, compile or open; no arbitrary filesystem/network access; deterministic tests.
 """
         try:
-            raw = self.router.chat([{"role": "user", "content": prompt}]).strip()
-            payload = self._parse_json(raw)
-            self._validate_payload(payload)
+            payload = self._validated_generation(prompt)
             return self._stage_and_test(payload)
         except Exception as exc:
             return ForgeResult("unknown", "", "failed", error=str(exc))
+
+    def upgrade(self, name: str, request: str = "Improve reliability, edge-case handling and test coverage without changing the public interface.") -> ForgeResult:
+        """Generate and test a new version of an installed skill, then atomically replace it."""
+        name = self.resolve_name(name, staged=False) or name
+        if not self.NAME_RE.fullmatch(name):
+            return ForgeResult(name, "", "failed", error="Invalid skill name.")
+        target = self.root / name
+        tool = target / "tool.py"
+        tests = target / "tests.py"
+        manifest = target / "manifest.json"
+        if not tool.exists() or not tests.exists():
+            return ForgeResult(name, "", "failed", error=f"Installed skill '{name}' not found.")
+
+        old_code = tool.read_text(encoding="utf-8")
+        old_tests = tests.read_text(encoding="utf-8")
+        old_manifest = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {"version": 1, "description": name}
+        version = int(old_manifest.get("version", 1)) + 1
+        prompt = f"""
+You are Abyss Forge Evolution.
+Improve the installed skill below.
+Reason for improvement: {request}
+
+Current skill name: {name}
+Current code:
+{old_code}
+
+Current tests:
+{old_tests}
+
+Return ONLY valid JSON with exactly: name, description, code, tests.
+Keep name exactly {name}. Preserve the execute() interface and existing behavior.
+Add regression tests for the requested improvement. Standard library only.
+No os, subprocess, socket, shutil, ctypes, multiprocessing, sys, importlib,
+requests, httpx, urllib, ftplib, eval, exec, __import__, compile or open.
+No markdown fences.
+"""
+        try:
+            payload = self._validated_generation(prompt)
+            if payload["name"] != name:
+                raise ValueError("Evolution must preserve the skill name.")
+            result = self._stage_and_test(payload, version=version)
+            if result.status != "staged":
+                return result
+            staged = self.staging / name
+            backup = self.backups / f"{name}_v{old_manifest.get('version', 1)}"
+            if backup.exists():
+                shutil.rmtree(backup)
+            shutil.copytree(target, backup)
+            shutil.rmtree(target)
+            shutil.copytree(staged, target)
+            return ForgeResult(name, payload["description"], "upgraded", str(target), result.tests)
+        except Exception as exc:
+            return ForgeResult(name, "", "failed", error=str(exc))
 
     def install(self, name: str) -> ForgeResult:
         requested = name
@@ -70,7 +123,7 @@ Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs);
             return ForgeResult(name, "", "failed", error=f"No staged skill found. Forge it first.{hint}")
         target = self.root / name
         if target.exists():
-            return ForgeResult(name, "", "failed", error="Skill already exists; refusing to overwrite it.")
+            return ForgeResult(name, "", "failed", error="Skill already exists; use /forge-upgrade to evolve it.")
         shutil.copytree(staged, target)
         manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
         return ForgeResult(name, manifest["description"], "installed", str(target), manifest.get("tests", ""))
@@ -86,12 +139,7 @@ Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs);
             if suggestions:
                 return f"Installed skill '{requested}' not found. Did you mean: {', '.join(suggestions[:3])}?"
             return f"Installed skill '{requested}' not found. Use /skills to see installed skills."
-        runner = (
-            "import json, sys\n"
-            "from tool import Skill\n"
-            "value = Skill().execute(*json.loads(sys.argv[1]))\n"
-            "print(value if isinstance(value, str) else json.dumps(value, default=str))\n"
-        )
+        runner = "import json, sys\nfrom tool import Skill\nvalue = Skill().execute(*json.loads(sys.argv[1]))\nprint(value if isinstance(value, str) else json.dumps(value, default=str))\n"
         try:
             result = subprocess.run([sys.executable, "-c", runner, json.dumps(args or [])], cwd=target, capture_output=True, text=True, timeout=20)
         except subprocess.TimeoutExpired:
@@ -105,7 +153,7 @@ Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs);
         return sorted(p.name for p in self.staging.iterdir() if p.is_dir())
 
     def list_installed(self) -> list[str]:
-        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and p.name != ".staging" and (p / "tool.py").exists())
+        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and p.name not in {".staging", ".backups"} and (p / "tool.py").exists())
 
     def suggestions(self, name: str, staged: bool = False) -> list[str]:
         pool = self.list_staged() if staged else self.list_installed()
@@ -128,7 +176,13 @@ Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs);
             return suggestions[0]
         return None
 
-    def _stage_and_test(self, payload: dict) -> ForgeResult:
+    def _validated_generation(self, prompt: str) -> dict:
+        raw = self.router.chat([{"role": "user", "content": prompt}]).strip()
+        payload = self._parse_json(raw)
+        self._validate_payload(payload)
+        return payload
+
+    def _stage_and_test(self, payload: dict, version: int = 1) -> ForgeResult:
         name = payload["name"]
         stage = self.staging / name
         if stage.exists():
@@ -136,7 +190,7 @@ Rules: lowercase snake_case name; class Skill with execute(self,*args,**kwargs);
         stage.mkdir(parents=True)
         (stage / "tool.py").write_text(payload["code"], encoding="utf-8")
         (stage / "tests.py").write_text(payload["tests"], encoding="utf-8")
-        (stage / "manifest.json").write_text(json.dumps({"name": name, "description": payload["description"], "tests": "tests.py", "generated_by": "Abyss Forge", "version": 1}, indent=2), encoding="utf-8")
+        (stage / "manifest.json").write_text(json.dumps({"name": name, "description": payload["description"], "tests": "tests.py", "generated_by": "Abyss Forge", "version": version}, indent=2), encoding="utf-8")
         try:
             result = subprocess.run([sys.executable, "tests.py"], cwd=stage, capture_output=True, text=True, timeout=20)
         except subprocess.TimeoutExpired:
