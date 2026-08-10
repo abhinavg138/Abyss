@@ -136,6 +136,7 @@ Current tests:
 {old_tests}
 
 Return ONLY valid JSON with exactly: name, description, code, tests.
+The code and tests values MUST be JSON strings with escaped newlines. Do not put raw line breaks inside JSON strings.
 Keep name exactly {name}. Preserve the execute() interface and all working behavior.
 Add a regression test reproducing the failure and tests for the repair.
 Do not merely weaken validation to make the test pass.
@@ -144,7 +145,7 @@ sys, importlib, requests, httpx, urllib, ftplib, eval, exec, __import__, compile
 No markdown fences.
 """
         try:
-            payload = self._validated_generation(prompt)
+            payload = self._validated_generation(prompt, retries=2)
             if payload["name"] != name:
                 raise ValueError("Repair must preserve the skill name.")
             result = self._stage_and_test(payload, version=old_version + 1)
@@ -259,11 +260,25 @@ No markdown fences.
             return suggestions[0]
         return None
 
-    def _validated_generation(self, prompt: str) -> dict:
-        raw = self.router.chat([{"role": "user", "content": prompt}]).strip()
-        payload = self._parse_json(raw)
-        self._validate_payload(payload)
-        return payload
+    def _validated_generation(self, prompt: str, retries: int = 1) -> dict:
+        last_error = None
+        current_prompt = prompt
+        for attempt in range(retries + 1):
+            raw = self.router.chat([{"role": "user", "content": current_prompt}]).strip()
+            try:
+                payload = self._parse_json(raw)
+                self._validate_payload(payload)
+                return payload
+            except Exception as exc:
+                last_error = exc
+                if attempt < retries:
+                    current_prompt = (
+                        prompt
+                        + "\n\nIMPORTANT: Your previous response could not be parsed or validated. "
+                        + "Return ONLY one valid JSON object. Every newline inside code/tests MUST be escaped as \\n. "
+                        + f"Parser/validator error: {exc}"
+                    )
+        raise ValueError(f"Forge model did not produce a valid skill after {retries + 1} attempts: {last_error}")
 
     def _stage_and_test(self, payload: dict, version: int = 1) -> ForgeResult:
         name = payload["name"]
@@ -317,16 +332,51 @@ No markdown fences.
 
     def _parse_json(self, raw: str) -> dict:
         candidates = [raw]
-        if "```" in raw:
-            candidates.insert(0, re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.IGNORECASE))
+        cleaned = raw.strip()
+        if "```" in cleaned:
+            cleaned = re.sub(r"^\s*```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s*```\s*$", "", cleaned)
+            candidates.insert(0, cleaned)
+
         for candidate in candidates:
             try:
                 return json.loads(candidate, strict=False)
             except json.JSONDecodeError:
                 start, end = candidate.find("{"), candidate.rfind("}")
                 if start >= 0 and end > start:
+                    fragment = candidate[start:end + 1]
                     try:
-                        return json.loads(candidate[start:end + 1], strict=False)
+                        return json.loads(fragment, strict=False)
                     except json.JSONDecodeError:
-                        pass
+                        # Last-resort recovery for LLMs that put literal newlines
+                        # inside JSON string values. Convert control characters
+                        # inside quoted strings into escaped JSON sequences.
+                        repaired = []
+                        in_string = False
+                        escaped = False
+                        for ch in fragment:
+                            if escaped:
+                                repaired.append(ch)
+                                escaped = False
+                                continue
+                            if ch == "\\":
+                                repaired.append(ch)
+                                escaped = True
+                                continue
+                            if ch == '"':
+                                repaired.append(ch)
+                                in_string = not in_string
+                                continue
+                            if in_string and ch == "\n":
+                                repaired.append("\\n")
+                            elif in_string and ch == "\r":
+                                repaired.append("\\r")
+                            elif in_string and ch == "\t":
+                                repaired.append("\\t")
+                            else:
+                                repaired.append(ch)
+                        try:
+                            return json.loads("".join(repaired), strict=False)
+                        except json.JSONDecodeError:
+                            pass
         raise ValueError("Forge model did not return valid JSON.")
