@@ -1,0 +1,60 @@
+/* Abyss speedrun polish — final visual cleanup */
+
+/* Keep the chat dense and readable. */
+.messages {
+  gap: 14px !important;
+  padding: 24px 7vw 20px !important;
+  justify-content: flex-start !important;
+}
+.msg {
+  margin: 0 !important;
+  min-height: 0 !important;
+}
+.msg + .msg { margin-top: 2px !important; }
+
+/* Don't let command/status replies create giant cards. */
+.bubble-body { min-height: 0 !important; }
+
+/* Sidebar: compact product navigation. */
+.sidebar {
+  width: 240px !important;
+  min-width: 240px !important;
+}
+.sidebar-brand { padding: 14px 18px 8px !important; }
+.new-chat-btn { margin-top: 8px !important; }
+.convo-item { padding-top: 7px !important; padding-bottom: 7px !important; }
+
+/* One quiet composer, no dashboard footer. */
+.statusbar { display: none !important; }
+.input-area {
+  padding: 10px 7vw 14px !important;
+  background: linear-gradient(to bottom, transparent, #090b10 28%) !important;
+}
+.input-wrap {
+  min-height: 50px !important;
+  border-radius: 12px !important;
+}
+
+/* Header should disappear into the background. */
+.chat-topbar { height: 46px !important; }
+.topbar-model {
+  background: transparent !important;
+  border-color: rgba(255,255,255,.07) !important;
+  color: #858894 !important;
+}
+
+/* AI identity is subtle; content is the focus. */
+.avatar.ai-av { width: 30px !important; height: 30px !important; }
+.avatar.user-av { width: 28px !important; height: 28px !important; }
+.bubble-name.ai { color: #a78bfa !important; }
+.bubble-time { opacity: .72; }
+
+/* Quiet scrollbars. */
+.messages::-webkit-scrollbar { width: 3px !important; }
+.messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06) !important; }
+
+/* Mobile */
+@media (max-width: 800px) {
+  .sidebar { width: 220px !important; min-width: 220px !important; }
+  .messages, .input-area { padding-left: 16px !important; padding-right: 16px !important; }
+}
