@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +16,18 @@ class AgentEngine:
         self.calculator = calculator
         self.browser = browser
 
-    @property
-    def nvidia(self):
-        return self.router.providers.get("nvidia")
+    def _agent_providers(self):
+        """Return configured OpenAI-compatible providers that can run tools."""
+        providers = []
+        for name in ("nvidia", "groq", "openrouter"):
+            provider = self.router.providers.get(name)
+            if provider is None or not hasattr(provider, "client"):
+                continue
+            providers.append((name, provider))
+        return providers
 
     def available(self) -> bool:
-        return self.nvidia is not None and hasattr(self.nvidia, "client")
+        return bool(self._agent_providers())
 
     def _tools(self) -> list[dict]:
         return [
@@ -67,19 +74,61 @@ class AgentEngine:
             return "Denied: potentially destructive command."
         return self.terminal.execute(command, timeout=120)
 
+    def _model_for(self, name: str, provider) -> str:
+        from config import Config
+        if name == "nvidia":
+            return Config.NVIDIA_MODEL
+        if name == "groq":
+            return Config.GROQ_MODEL
+        if name == "openrouter":
+            return Config.OPENROUTER_MODEL
+        return ""
+
+    def _complete(self, name: str, provider, messages: list[dict]):
+        model = self._model_for(name, provider)
+        return provider.client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=self._tools(),
+            tool_choice="auto",
+        )
+
     def run(self, task: str) -> str:
-        if not self.available():
-            return "❌ Agent mode requires the NVIDIA provider (GLM-5.2) to be configured."
+        providers = self._agent_providers()
+        if not providers:
+            return "❌ Agent mode requires a configured tool-capable provider (NVIDIA, Groq, or OpenRouter)."
 
         messages = [
             {"role": "system", "content": "You are Abyss Agent, an autonomous software and computer-use agent. Work methodically. Inspect before modifying. Use tools for evidence instead of guessing. For coding tasks, inspect relevant files, make the smallest correct changes, run an appropriate test when possible, and report exactly what changed. Never claim a tool action succeeded unless its result confirms it. Stay inside the current workspace."},
             {"role": "user", "content": task},
         ]
-        client = self.nvidia.client
-        from config import Config
+
+        active_name, active_provider = providers[0]
 
         for _step in range(1, self.MAX_STEPS + 1):
-            response = client.chat.completions.create(model=Config.NVIDIA_MODEL, messages=messages, tools=self._tools(), tool_choice="auto")
+            try:
+                response = self._complete(active_name, active_provider, messages)
+            except Exception as exc:
+                # NVIDIA/NIM can return 429 when its short-term quota is exhausted.
+                # Give it one brief retry, then fall through to another configured
+                # OpenAI-compatible provider instead of crashing the FastAPI stream.
+                if "429" in str(exc) or exc.__class__.__name__ == "RateLimitError":
+                    time.sleep(2)
+                    try:
+                        response = self._complete(active_name, active_provider, messages)
+                    except Exception as retry_exc:
+                        remaining = [(n, p) for n, p in providers if n != active_name]
+                        if not remaining:
+                            return f"❌ Agent provider {active_name} is rate-limited (429). Try again shortly."
+                        active_name, active_provider = remaining[0]
+                        try:
+                            response = self._complete(active_name, active_provider, messages)
+                        except Exception as fallback_exc:
+                            return f"❌ Agent providers failed. {active_name}: {fallback_exc}"
+                else:
+                    return f"❌ Agent provider {active_name} failed: {exc}"
+
+            self.router.current_provider = active_name
             message = response.choices[0].message
             tool_calls = getattr(message, "tool_calls", None) or []
 
@@ -99,4 +148,4 @@ class AgentEngine:
                 result = self._execute(call.function.name, arguments)
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": result[:30000]})
 
-        return "❌ Agent stopped after reaching its maximum of 8 tool steps."
+        return f"❌ Agent stopped after reaching its maximum of {self.MAX_STEPS} tool steps."
