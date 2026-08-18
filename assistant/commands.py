@@ -1,4 +1,5 @@
 from tools.browser import BrowserTool
+from assistant.agent import AgentEngine
 
 
 class CommandHandler:
@@ -19,6 +20,7 @@ class CommandHandler:
 /help
 /provider groq
 /status
+/agent TASK
 /clear
 /calc EXPR
 /read FILE
@@ -48,6 +50,19 @@ class CommandHandler:
 /forget ID
 """
 
+        if command == "/agent":
+            task = user_message.replace("/agent", "", 1).strip()
+            if not task:
+                return "Usage: /agent <task>\nExample: /agent inspect this project and find why streaming is broken"
+            agent = AgentEngine(
+                self.manager.router,
+                self.manager.filesystem,
+                self.manager.terminal,
+                self.manager.calculator,
+                self.browser,
+            )
+            return agent.run(task)
+
         if command == "/tools":
             return """Abyss Tools 2.0
 
@@ -61,6 +76,9 @@ tree        — project tree
 project     — read Python project source
 terminal    — execute local commands (120s max)
 browser     — fetch public HTTP/HTTPS URLs
+
+Abyss Agent
+agent       — autonomous multi-step tool-calling workflow using GLM-5.2
 
 Abyss Forge
 forge         — generate + test a new skill
