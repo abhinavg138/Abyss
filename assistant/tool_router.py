@@ -13,8 +13,6 @@ class ToolRouter:
         if msg.startswith("/"):
             return user_message.strip()
 
-        # Explicit request for a new capability. Forge is intentionally staged:
-        # it generates and tests a skill, but never silently installs it.
         forge_markers = (
             "create a tool", "make a tool", "build a tool", "forge a tool",
             "create a skill", "make a skill", "build a skill", "teach yourself",
@@ -54,6 +52,21 @@ class ToolRouter:
         url_match = re.search(r"https?://\S+", user_message)
         if url_match and any(word in msg for word in ("open", "read", "fetch", "visit", "look at")):
             return "/web " + url_match.group(0).rstrip(".,)")
+
+        # Ordinary chat should go straight to the model. Only spend a second
+        # model request on intent classification when the user strongly signals
+        # that they want Abyss to inspect or operate on something.
+        tool_signals = (
+            "inspect", "look through", "look at my", "check my file",
+            "check the file", "search my", "search the project", "find in",
+            "find all", "grep", "read my", "open my", "open the file",
+            "run the command", "use the terminal", "execute the command",
+            "run this", "edit my", "modify my file", "change the file",
+            "write to", "create a file", "project files", "project folder",
+            "show me the files", "what files", "browse", "visit the site",
+        )
+        if not any(signal in msg for signal in tool_signals):
+            return "NONE"
 
         prompt = f"""
 You are Abyss's tool intent classifier.
